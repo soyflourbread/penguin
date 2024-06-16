@@ -42,21 +42,6 @@ async fn main(spawner: Spawner) {
     pwm_0_config.top = top;
     pwm_0_config.compare_a = 0x0000;
     let mut pwm_0 = pwm::Pwm::new_output_a(p.PWM_SLICE3,  p.PIN_22, pwm_0_config.clone());
-    pwm_0_config.compare_a = 0x1000;
-    pwm_0.set_config(&pwm_0_config);
-
-    Timer::after_millis(4000).await;
-    pwm_0_config.compare_a = 0x2000;
-    pwm_0.set_config(&pwm_0_config);
-    Timer::after_millis(4000).await;
-    pwm_0_config.compare_a = 0x4000;
-    pwm_0.set_config(&pwm_0_config);
-    Timer::after_millis(4000).await;
-    pwm_0_config.compare_a = 0x0000;
-    pwm_0.set_config(&pwm_0_config);
-    // Timer::after_millis(1000).await;
-    // pwm_0_config.compare_a = 0x0000;
-    // pwm_0.set_config(&pwm_0_config);
 
     let mut ticker = Ticker::every(Duration::from_millis(400));
     let mut frame = String::<128>::new();

@@ -31,6 +31,8 @@ heapless = "0.8"
 bincode = { version = "2.0.0-rc.3", default-features = false, features = ["derive"]}
 fixed = "1.27.0"
 fixed-macro = "1.2.0"
+static_cell = "2"
+portable-atomic = { version = "1.5", features = ["critical-section"] }
 
 [patch.crates-io]
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "3e2b015dc477023887ae9b0e5e3adf5deb7af362" }

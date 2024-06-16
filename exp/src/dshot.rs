@@ -1,6 +1,7 @@
 use embassy_rp::{pio, gpio};
 
 use defmt::{info};
+use embassy_time::Timer;
 
 mod api {
     #[derive(Debug)]
@@ -138,6 +139,18 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
         sm.set_enable(true);
 
         Self { sm }
+    }
+    
+    pub async fn arm(&mut self) {
+        for _i in 0..50 {
+            self.throttle(0).await;
+            Timer::after_millis(50).await;
+        }
+        for _i in 0..10 {
+            self.direction(true).await;
+            Timer::after_millis(50).await;
+        }
+        Timer::after_millis(400).await;
     }
 
     pub async fn beep(&mut self) {

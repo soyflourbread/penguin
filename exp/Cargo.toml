@@ -28,3 +28,5 @@ heapless.workspace = true
 bincode.workspace = true
 fixed.workspace = true
 fixed-macro.workspace = true
+static_cell.workspace = true
+portable-atomic.workspace = true
