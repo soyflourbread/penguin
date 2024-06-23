@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use penguin_dshot::DshotTx;
+
 use core::fmt::Write;
 use heapless::String;
 
@@ -22,14 +24,14 @@ static PIO_0: StaticCell<peripherals::PIO0> = StaticCell::new();
 
 #[embassy_executor::task]
 async fn motor(
-    mut esc_0: penguin_exp::dshot::PioDshot<'static, peripherals::PIO0, 1>
+    mut esc_0: penguin_dshot::PioDshot<'static, peripherals::PIO0, 1>
 ) {
     esc_0.arm().await;
     
     let mut ticker = Ticker::every(Duration::from_millis(40));
     loop {
         // esc_0.beep().await;
-        esc_0.throttle(120).await;
+        esc_0.send_command(penguin_dshot::api::Command::Throttle(120)).await;
         ticker.next().await;
     }
 }
@@ -51,7 +53,7 @@ async fn main(spawner: Spawner) {
         &mut common, sm0,
         p.PIN_16, 9600,
     );
-    let esc_0 = penguin_exp::dshot::PioDshot::new(
+    let esc_0 = penguin_dshot::PioDshot::new(
         &mut common, sm1,
         p.PIN_22,
     );

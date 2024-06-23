@@ -1,2 +1,5 @@
-pub mod command;
-pub mod frame;
+mod command;
+mod frame;
+
+pub use command::Command;
+pub use frame::{Frame, FrameBuilder};

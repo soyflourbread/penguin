@@ -927,6 +927,7 @@ dependencies = [
  "fixed-macro",
  "heapless",
  "panic-probe",
+ "penguin-dshot",
  "pio",
  "pio-proc",
  "portable-atomic",

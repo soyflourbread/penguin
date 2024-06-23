@@ -7,6 +7,8 @@ name = "penguin-exp"
 description = "who said penguins can't fly"
 
 [dependencies]
+penguin-dshot.workspace = true
+
 defmt.workspace = true
 defmt-rtt.workspace = true
 
