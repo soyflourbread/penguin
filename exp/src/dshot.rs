@@ -100,20 +100,17 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             r#"
             .side_set 1 opt
 
-            fetch_frame:
-                out null 16
-            
             loop_entry:
-                set x 15 ; will be executed 16 times
+                out null 16
             loop_start:
-                out y 1 side 1 [1]
-                jmp !y falling_edge ; 3 cycles of high so far
+                out x 1 side 1 [1]
+                jmp !x falling_edge ; 3 cycles of high so far
                 nop [2] ; 3 additional cycles of high
             falling_edge:
-                jmp y-- loop_end side 0 ; 1 cycle of low so far
+                jmp x-- loop_end side 0 ; 1 cycle of low so far
                 nop [2] ; 3 additional cycles of low
             loop_end:
-                jmp x-- loop_start ; 1 extra cycle of low
+                jmp !osre loop_start ; 1 extra cycle of low
             
             reset_entry: ; delay 128 cycles (why)
                 set x 14 [7] ; delay 8 cycles
@@ -159,8 +156,7 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             api::Command::MotorStop.try_into().unwrap(),
             false,
         );
-        let frame: u16 = frame.into();
-        self.sm.tx().wait_push(frame as u32).await;
+        self.write_tx(frame.into()).await;
     }
 
     pub async fn beep(&mut self) {
@@ -168,8 +164,7 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             api::Command::Beep{ count: 1 }.try_into().unwrap(),
             true,
         );
-        let frame: u16 = frame.into();
-        self.sm.tx().wait_push(frame as u32).await;
+        self.write_tx(frame.into()).await;
     }
 
     pub async fn throttle(&mut self, throttle: u16) {
@@ -178,8 +173,7 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             api::Command::Throttle(throttle).try_into().unwrap(),
             false,
         );
-        let frame: u16 = frame.into();
-        self.sm.tx().wait_push(frame as u32).await;
+        self.write_tx(frame.into()).await;
     }
     
     pub async fn direction(&mut self, reverse: bool) {
@@ -187,7 +181,10 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             api::Command::Reverse(reverse).try_into().unwrap(),
             true,
         );
-        let frame: u16 = frame.into();
-        self.sm.tx().wait_push(frame as u32).await;
+        self.write_tx(frame.into()).await;
+    }
+    
+    async fn write_tx(&mut self, word: u16) {
+        self.sm.tx().wait_push(word as u32).await;
     }
 }
