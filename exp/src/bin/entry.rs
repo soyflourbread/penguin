@@ -7,7 +7,7 @@ use heapless::String;
 use embassy_executor::Spawner;
 use embassy_rp::{adc, bind_interrupts, gpio, pwm};
 use embassy_rp::{pio, i2c, peripherals, uart};
-use embassy_time::{Duration, Ticker};
+use embassy_time::{Duration, Ticker, Timer};
 use static_cell::StaticCell;
 
 use defmt::{info, unwrap};
@@ -25,24 +25,12 @@ async fn motor(
     mut esc_0: penguin_exp::dshot::PioDshot<'static, peripherals::PIO0, 1>
 ) {
     esc_0.arm().await;
-    info!("motor armed");
-
-    const THROTTLE_MIN: u16 = 100;
-    const THROTTLE_MAX: u16 = 200;
-    let mut throttle = THROTTLE_MIN;
-    let mut desc = false;
-
-    let mut ticker = Ticker::every(Duration::from_millis(10));
+    
+    let mut ticker = Ticker::every(Duration::from_millis(40));
     loop {
-        esc_0.beep().await;
-        // ticker.next().await;
-        // if throttle <= THROTTLE_MIN {
-        //     desc = false
-        // } else if throttle >= THROTTLE_MAX {
-        //     desc = true;
-        // }
-        // throttle = if desc { throttle - 1 } else { throttle + 1 };
-        // esc_0.throttle(throttle).await;
+        // esc_0.beep().await;
+        esc_0.throttle(120).await;
+        ticker.next().await;
     }
 }
 
@@ -59,10 +47,10 @@ async fn main(spawner: Spawner) {
     let pio::Pio {
         mut common, sm0, sm1, ..
     } = pio::Pio::new(pio_0, Irqs);
-    // let mut uart_0 = penguin_exp::uart::PioUartTx::new(
-    //     &mut common, sm0,
-    //     p.PIN_16, 9600,
-    // );
+    let mut uart_0 = penguin_exp::uart::PioUartTx::new(
+        &mut common, sm0,
+        p.PIN_16, 9600,
+    );
     let esc_0 = penguin_exp::dshot::PioDshot::new(
         &mut common, sm1,
         p.PIN_22,
@@ -87,10 +75,10 @@ async fn main(spawner: Spawner) {
         let vol = potentiometer.voltage(&mut adc).await.unwrap();
         let temp = thermometer.temperature(&mut adc).await.unwrap();
         frame.clear();
-        // let  _ = write!(frame, "vol: {}, temp: {} \r\n", vol, temp);
-        // {
-        //     use embedded_io_async::Write;
-        //     uart_0.write(frame.as_bytes()).await.unwrap();
-        // }
+        let  _ = write!(frame, "vol: {}, temp: {} \r\n", vol, temp);
+        {
+            use embedded_io_async::Write;
+            uart_0.write(frame.as_bytes()).await.unwrap();
+        }
     }
 }

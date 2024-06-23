@@ -95,31 +95,31 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
         mut sm: pio::StateMachine<'a, P, SM>,
         pin: impl pio::PioPin,
     ) -> Self {
+        // 6:2 for high, 3:5 for low
         let prg = pio_proc::pio_asm!(
             r#"
-            set pindirs, 1
-            entry:
-                pull
+            .side_set 1 opt
+
+            fetch_frame:
                 out null 16
+            
+            loop_entry:
                 set x 15 ; will be executed 16 times
-            loop:
-                set pins 1
-                out y 1
-                jmp !y zero
-                nop [2]
-            one: ; 6 and 2
-                set pins 0
-                jmp x-- loop
-                jmp reset
-            zero: ; 3 and 5
-                set pins 0 [3]
-                jmp x-- loop
-                jmp reset
-            reset:
-                nop [31]
-                nop [31]
-                nop [31]
-                jmp entry [31]
+            loop_start:
+                out y 1 side 1 [1]
+                jmp !y falling_edge ; 3 cycles of high so far
+                nop [2] ; 3 additional cycles of high
+            falling_edge:
+                jmp y-- loop_end side 0 ; 1 cycle of low so far
+                nop [2] ; 3 additional cycles of low
+            loop_end:
+                jmp x-- loop_start ; 1 extra cycle of low
+            
+            reset_entry: ; delay 128 cycles (why)
+                set x 14 [7] ; delay 8 cycles
+            reset_start:
+            reset_end:
+                jmp x-- reset_start [7] ; delay 8 cycles
             "#
         );
         let pin = common.make_pio_pin(pin);
@@ -128,13 +128,10 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
 
         let mut cfg = pio::Config::default();
         cfg.set_set_pins(&[&pin]);
-        cfg.use_program(&common.load_program(&prg.program), &[]);
-        cfg.shift_in = pio::ShiftConfig {
-            // auto_fill: true,
-            threshold: 32,
-            ..Default::default()
-        };
+        cfg.use_program(&common.load_program(&prg.program), &[&pin]);
         cfg.shift_out = pio::ShiftConfig {
+            auto_fill: true,
+            threshold: 32,
             direction: pio::ShiftDirection::Left,
             ..Default::default()
         };
@@ -147,15 +144,23 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
     }
     
     pub async fn arm(&mut self) {
-        for _i in 0..50 {
-            self.throttle(0).await;
-            Timer::after_millis(50).await;
+        for _i in 0..2000 {
+            self.motor_stop().await;
+            Timer::after_millis(1).await;
         }
-        for _i in 0..10 {
+        for _i in 0..1000 {
             self.direction(false).await;
-            Timer::after_millis(50).await;
+            Timer::after_millis(1).await;
         }
-        Timer::after_millis(400).await;
+    }
+    
+    pub async fn motor_stop(&mut self) {
+        let frame = api::Frame::new(
+            api::Command::MotorStop.try_into().unwrap(),
+            false,
+        );
+        let frame: u16 = frame.into();
+        self.sm.tx().wait_push(frame as u32).await;
     }
 
     pub async fn beep(&mut self) {
