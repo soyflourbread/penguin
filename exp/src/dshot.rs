@@ -3,6 +3,9 @@ use embassy_rp::{pio, gpio};
 use defmt::{info};
 use embassy_time::Timer;
 
+use fixed::traits::ToFixed;
+use fixed_macro::types::U56F8;
+
 mod api {
     #[derive(Debug)]
     pub enum CommandError {
@@ -91,32 +94,33 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
         common: &mut pio::Common<'a, P>,
         mut sm: pio::StateMachine<'a, P, SM>,
         pin: impl pio::PioPin,
-        clk_div: u16,
     ) -> Self {
         let prg = pio_proc::pio_asm!(
-            "set pindirs, 1",
-            "entry:"
-            "   pull"
-            "   out null 16"
-            "   set x 15"
-            "loop:"
-            "   set pins 1"
-            "   out y 1"
-            "   jmp !y zero"
-            "   nop [2]"
-            "one:" // 6 and 2
-            "   set pins 0"
-            "   jmp x-- loop"
-            "   jmp reset"
-            "zero:" // 3 and 5
-            "   set pins 0 [3]"
-            "   jmp x-- loop"
-            "   jmp reset"
-            "reset:" // Blank frame
-            "   nop [31]"
-            "   nop [31]"
-            "   nop [31]"
-            "   jmp entry [31]"
+            r#"
+            set pindirs, 1
+            entry:
+                pull
+                out null 16
+                set x 15 ; will be executed 16 times
+            loop:
+                set pins 1
+                out y 1
+                jmp !y zero
+                nop [2]
+            one: ; 6 and 2
+                set pins 0
+                jmp x-- loop
+                jmp reset
+            zero: ; 3 and 5
+                set pins 0 [3]
+                jmp x-- loop
+                jmp reset
+            reset:
+                nop [31]
+                nop [31]
+                nop [31]
+                jmp entry [31]
+            "#
         );
         let pin = common.make_pio_pin(pin);
         sm.set_pins(gpio::Level::Low, &[&pin]);
@@ -126,7 +130,7 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
         cfg.set_set_pins(&[&pin]);
         cfg.use_program(&common.load_program(&prg.program), &[]);
         cfg.shift_in = pio::ShiftConfig {
-            auto_fill: true,
+            // auto_fill: true,
             threshold: 32,
             ..Default::default()
         };
@@ -134,7 +138,8 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             direction: pio::ShiftDirection::Left,
             ..Default::default()
         };
-        cfg.clock_divider = clk_div.into();
+        let dshot_rate = 300u64 * 1000 * 8;
+        cfg.clock_divider = (U56F8!(125_000_000) / dshot_rate).to_fixed();
         sm.set_config(&cfg);
         sm.set_enable(true);
 
@@ -147,7 +152,7 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             Timer::after_millis(50).await;
         }
         for _i in 0..10 {
-            self.direction(true).await;
+            self.direction(false).await;
             Timer::after_millis(50).await;
         }
         Timer::after_millis(400).await;
@@ -159,7 +164,6 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             true,
         );
         let frame: u16 = frame.into();
-        info!("frame: {:b}", frame);
         self.sm.tx().wait_push(frame as u32).await;
     }
 

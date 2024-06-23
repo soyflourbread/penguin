@@ -884,6 +884,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
+name = "penguin-dshot"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt",
+ "defmt-rtt",
+ "embassy-executor",
+ "embassy-rp",
+ "embassy-sync",
+ "embassy-time",
+ "embedded-hal-async",
+ "embedded-io-async",
+ "fixed",
+ "fixed-macro",
+ "heapless",
+ "panic-probe",
+ "pio",
+ "pio-proc",
+ "portable-atomic",
+ "static_cell",
+]
+
+[[package]]
 name = "penguin-exp"
 version = "0.1.0"
 dependencies = [

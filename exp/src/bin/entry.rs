@@ -27,21 +27,22 @@ async fn motor(
     esc_0.arm().await;
     info!("motor armed");
 
-    const THROTTLE_MIN: u16 = 24;
-    const THROTTLE_MAX: u16 = 32;
+    const THROTTLE_MIN: u16 = 100;
+    const THROTTLE_MAX: u16 = 200;
     let mut throttle = THROTTLE_MIN;
     let mut desc = false;
 
-    let mut ticker = Ticker::every(Duration::from_millis(100));
+    let mut ticker = Ticker::every(Duration::from_millis(10));
     loop {
-        ticker.next().await;
-        if throttle <= THROTTLE_MIN {
-            desc = false
-        } else if throttle >= THROTTLE_MAX {
-            desc = true;
-        }
-        throttle = if desc { throttle - 1 } else { throttle + 1 };
-        esc_0.throttle(throttle).await;
+        esc_0.beep().await;
+        // ticker.next().await;
+        // if throttle <= THROTTLE_MIN {
+        //     desc = false
+        // } else if throttle >= THROTTLE_MAX {
+        //     desc = true;
+        // }
+        // throttle = if desc { throttle - 1 } else { throttle + 1 };
+        // esc_0.throttle(throttle).await;
     }
 }
 
@@ -64,7 +65,7 @@ async fn main(spawner: Spawner) {
     // );
     let esc_0 = penguin_exp::dshot::PioDshot::new(
         &mut common, sm1,
-        p.PIN_22, 52
+        p.PIN_22,
     );
     unwrap!(spawner.spawn(motor(esc_0)));
 
@@ -86,10 +87,10 @@ async fn main(spawner: Spawner) {
         let vol = potentiometer.voltage(&mut adc).await.unwrap();
         let temp = thermometer.temperature(&mut adc).await.unwrap();
         frame.clear();
-        let  _ = write!(frame, "vol: {}, temp: {} \r\n", vol, temp);
-        {
-            use embedded_io_async::Write;
-            uart_0.write(frame.as_bytes()).await.unwrap();
-        }
+        // let  _ = write!(frame, "vol: {}, temp: {} \r\n", vol, temp);
+        // {
+        //     use embedded_io_async::Write;
+        //     uart_0.write(frame.as_bytes()).await.unwrap();
+        // }
     }
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["exp"]
+members = ["dshot", "exp"]
 
 [workspace.package]
 edition = "2021"
@@ -8,7 +8,8 @@ version = "0.1.0"
 authors = ["Clementine Bread <soyflourbread@gmail.com>"]
 
 [workspace.dependencies]
-#penguin_exp = { path = "exp" }
+penguin_exp = { path = "exp" }
+penguin_dshot = { path = "dshot" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
