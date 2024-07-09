@@ -3,8 +3,9 @@
 
 use penguin_dshot::DshotTx;
 
-use core::fmt::Write;
 use heapless::String;
+use core::fmt::Write;
+use core::sync::atomic::AtomicBool;
 
 use embassy_executor::Spawner;
 use embassy_rp::{adc, bind_interrupts, gpio, pwm};
@@ -13,6 +14,7 @@ use embassy_time::{Duration, Ticker, Timer};
 use static_cell::StaticCell;
 
 use defmt::{info, unwrap};
+use embassy_rp::gpio::Pin;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -22,17 +24,39 @@ bind_interrupts!(struct Irqs {
 
 static PIO_0: StaticCell<peripherals::PIO0> = StaticCell::new();
 
+static MOTOR_ENABLED: AtomicBool = AtomicBool::new(false);
+
 #[embassy_executor::task]
 async fn motor(
-    mut esc_0: penguin_dshot::PioDshot<'static, peripherals::PIO0, 1>
+    mut esc_0: penguin_dshot::bidir::PioDshot<'static, peripherals::PIO0, 1>
 ) {
+    Timer::after_millis(800).await;
     esc_0.arm().await;
     
     let mut ticker = Ticker::every(Duration::from_millis(40));
     loop {
-        // esc_0.beep().await;
-        esc_0.send_command(penguin_dshot::api::Command::Throttle(120)).await;
+        let mut throttle = 0;
+        if MOTOR_ENABLED.load(core::sync::atomic::Ordering::Relaxed) {
+            throttle = 180;
+        }
+        esc_0.send_command(penguin_dshot::api::Command::Throttle(throttle)).await;
         ticker.next().await;
+    }
+}
+
+#[embassy_executor::task]
+async fn button_task(
+    pin: gpio::AnyPin
+) {
+    let input = gpio::Input::new(pin, gpio::Pull::Up);;
+    let mut button = penguin_exp::button::Button::new(input, Duration::from_millis(40));
+    loop {
+        let level = button.debounce().await;
+        if level != gpio::Level::High {
+            continue;
+        }
+        let enabled = MOTOR_ENABLED.load(core::sync::atomic::Ordering::Relaxed);
+        MOTOR_ENABLED.store(!enabled, core::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -53,11 +77,13 @@ async fn main(spawner: Spawner) {
         &mut common, sm0,
         p.PIN_16, 9600,
     );
-    let esc_0 = penguin_dshot::PioDshot::new(
+    let esc_0 = penguin_dshot::bidir::PioDshot::new(
         &mut common, sm1,
         p.PIN_22,
     );
     unwrap!(spawner.spawn(motor(esc_0)));
+    let pin_btn = p.PIN_1.degrade();
+    unwrap!(spawner.spawn(button_task(pin_btn)));
 
     let mut led = penguin_exp::blinker::Blinker::new(
         p.PIN_25,

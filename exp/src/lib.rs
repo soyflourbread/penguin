@@ -6,4 +6,3 @@ pub mod thermometer;
 pub mod potentiometer;
 pub mod uart;
 pub mod servo;
-pub mod blheli_passthrough;
