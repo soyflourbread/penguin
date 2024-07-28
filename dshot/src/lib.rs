@@ -17,8 +17,6 @@ pub trait DshotTx {
     async fn send_command(&mut self, command: api::Command) -> Self::Output;
     
     async fn arm(&mut self) {
-        self.send_command(api::Command::Beep{ count: 1 }).await;
-        Timer::after_millis(500).await;
         self.send_command(api::Command::MotorStop).await;
         Timer::after_millis(500).await;
     }

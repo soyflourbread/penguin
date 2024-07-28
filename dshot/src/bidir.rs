@@ -1,6 +1,6 @@
 use defmt::info;
 use embassy_rp::{gpio, pio};
-use embassy_time::Timer;
+use embassy_time::{Duration, Ticker, Timer};
 
 use crate::{api, DshotTx};
 use fixed::traits::ToFixed;
@@ -26,8 +26,8 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
             write_entry:
                 out null 16
             write_start:
-                nop side 0 [1] ; 2 cycles of low
-                out pins 1 [3] ; 1 extra cycle of high and 3 cycles of out
+                nop side 0 [2] ; 3 cycles of low
+                out pins 1 [2] ; 3 cycles of out
                 nop side 1 ; 1 cycle of high
             write_end:
                 jmp !osre write_start ; 1 extra cycle of low
@@ -93,6 +93,14 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
 impl<'a, P: pio::Instance, const SM: usize> DshotTx for PioDshot<'a, P, SM> {
     type Output = Option<[u32; 3]>;
 
+    async fn arm(&mut self) {
+        let mut ticker = Ticker::every(Duration::from_millis(1));
+        for _i in 0..20000 {
+            self.send_command(api::Command::MotorStop).await;
+            ticker.next().await;
+        }
+    }
+
     async fn send_frame(&mut self, frame: u16) -> Self::Output {
         self.sm.tx().wait_push(!frame as u32).await;
         let status_tx = self.sm.rx().wait_pull().await;
@@ -119,7 +127,7 @@ impl<'a, P: pio::Instance, const SM: usize> DshotTx for PioDshot<'a, P, SM> {
         let command = command.try_into().unwrap();
         let frame = api::FrameBuilder::new(api::Frame {
             command,
-            telemetry: true,
+            telemetry: false,
         })
         .invert()
         .build();
