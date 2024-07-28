@@ -5,11 +5,11 @@ use core::fmt::Write;
 use heapless::String;
 
 use embassy_executor::Spawner;
-use embassy_rp::{adc, bind_interrupts, gpio, pwm};
-use embassy_rp::{pio, i2c, peripherals, uart};
-use embassy_time::{Delay, Duration, Ticker, Timer};
+use embassy_rp::{adc, bind_interrupts, pwm};
+use embassy_rp::{peripherals, pio};
+use embassy_time::{Duration, Ticker};
 
-use defmt::{info};
+use defmt::info;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -18,12 +18,9 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-    let mut led = penguin_exp::blinker::Blinker::new(
-        p.PIN_25,
-        Duration::from_millis(100),
-    );
+    let mut led = penguin_exp::blinker::Blinker::new(p.PIN_25, Duration::from_millis(100));
 
     let mut pwm_0_config: pwm::Config = Default::default();
     pwm_0_config.phase_correct = true;
@@ -41,7 +38,7 @@ async fn main(spawner: Spawner) {
     pwm_0_config.divider = divider.into();
     pwm_0_config.top = top;
     pwm_0_config.compare_a = 0x0000;
-    let mut pwm_0 = pwm::Pwm::new_output_a(p.PWM_SLICE3,  p.PIN_22, pwm_0_config.clone());
+    let pwm_0 = pwm::Pwm::new_output_a(p.PWM_SLICE3, p.PIN_22, pwm_0_config.clone());
 
     let mut ticker = Ticker::every(Duration::from_millis(400));
     let mut frame = String::<128>::new();

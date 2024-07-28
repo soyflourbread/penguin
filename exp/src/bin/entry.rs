@@ -3,13 +3,13 @@
 
 use penguin_dshot::DshotTx;
 
-use heapless::String;
 use core::fmt::Write;
 use core::sync::atomic::AtomicBool;
+use heapless::String;
 
 use embassy_executor::Spawner;
-use embassy_rp::{adc, bind_interrupts, gpio, pwm};
-use embassy_rp::{pio, i2c, peripherals, uart};
+use embassy_rp::{adc, bind_interrupts, gpio};
+use embassy_rp::{peripherals, pio};
 use embassy_time::{Duration, Ticker, Timer};
 use static_cell::StaticCell;
 
@@ -24,44 +24,30 @@ bind_interrupts!(struct Irqs {
 
 static PIO_0: StaticCell<peripherals::PIO0> = StaticCell::new();
 
-static MOTOR_ENABLED: AtomicBool = AtomicBool::new(false);
-
 #[embassy_executor::task]
-async fn motor(
-    mut esc_0: penguin_dshot::bidir::PioDshot<'static, peripherals::PIO0, 1>
-) {
-    Timer::after_millis(800).await;
-    esc_0.arm().await;
-    
-    let mut ticker = Ticker::every(Duration::from_millis(40));
-    loop {
-        let mut throttle = 0;
-        if MOTOR_ENABLED.load(core::sync::atomic::Ordering::Relaxed) {
-            throttle = 180;
-        }
-        esc_0.send_command(penguin_dshot::api::Command::Throttle(throttle)).await;
-        ticker.next().await;
-    }
-}
-
-#[embassy_executor::task]
-async fn button_task(
-    pin: gpio::AnyPin
-) {
-    let input = gpio::Input::new(pin, gpio::Pull::Up);;
+async fn button_task(pin: gpio::AnyPin, mut esc_0: penguin_dshot::PioDshot<'static, peripherals::PIO0, 1>) {
+    let input = gpio::Input::new(pin, gpio::Pull::Up);
     let mut button = penguin_exp::button::Button::new(input, Duration::from_millis(40));
+    let mut state = false;
     loop {
         let level = button.debounce().await;
         if level != gpio::Level::High {
             continue;
         }
-        let enabled = MOTOR_ENABLED.load(core::sync::atomic::Ordering::Relaxed);
-        MOTOR_ENABLED.store(!enabled, core::sync::atomic::Ordering::Relaxed);
+        state = !state;
+        info!("sending throttle command");
+        let command = if state {
+            penguin_dshot::api::Command::Throttle(120)
+        } else {
+            penguin_dshot::api::Command::MotorStop
+        };
+        esc_0.send_command(command)
+            .await;
     }
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(spawner: Spawner) { 
     let p = embassy_rp::init(Default::default());
 
     // let servo_0 = penguin_exp::servo::ServoAB::new(
@@ -71,24 +57,17 @@ async fn main(spawner: Spawner) {
 
     let pio_0: &'static mut _ = PIO_0.init(p.PIO0);
     let pio::Pio {
-        mut common, sm0, sm1, ..
+        mut common,
+        sm0,
+        sm1,
+        ..
     } = pio::Pio::new(pio_0, Irqs);
-    let mut uart_0 = penguin_exp::uart::PioUartTx::new(
-        &mut common, sm0,
-        p.PIN_16, 9600,
-    );
-    let esc_0 = penguin_dshot::bidir::PioDshot::new(
-        &mut common, sm1,
-        p.PIN_22,
-    );
-    unwrap!(spawner.spawn(motor(esc_0)));
+    let mut uart_0 = penguin_exp::uart::PioUartTx::new(&mut common, sm0, p.PIN_16, 9600);
+    let esc_0 = penguin_dshot::PioDshot::new(&mut common, sm1, p.PIN_22);
     let pin_btn = p.PIN_1.degrade();
-    unwrap!(spawner.spawn(button_task(pin_btn)));
+    unwrap!(spawner.spawn(button_task(pin_btn, esc_0)));
 
-    let mut led = penguin_exp::blinker::Blinker::new(
-        p.PIN_25,
-        Duration::from_millis(100),
-    );
+    let mut led = penguin_exp::blinker::Blinker::new(p.PIN_25, Duration::from_millis(100));
 
     let mut adc = adc::Adc::new(p.ADC, Irqs, adc::Config::default());
     let mut potentiometer = penguin_exp::potentiometer::Potentiometer::new(p.PIN_29);
@@ -103,7 +82,7 @@ async fn main(spawner: Spawner) {
         let vol = potentiometer.voltage(&mut adc).await.unwrap();
         let temp = thermometer.temperature(&mut adc).await.unwrap();
         frame.clear();
-        let  _ = write!(frame, "vol: {}, temp: {} \r\n", vol, temp);
+        let _ = write!(frame, "vol: {}, temp: {} \r\n", vol, temp);
         {
             use embedded_io_async::Write;
             uart_0.write(frame.as_bytes()).await.unwrap();

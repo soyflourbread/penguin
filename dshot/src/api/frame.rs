@@ -17,12 +17,12 @@ impl FrameBuilder {
             ..Default::default()
         }
     }
-    
+
     pub fn invert(mut self) -> Self {
         self.inverted = true;
         return self;
     }
-    
+
     pub fn build(self) -> u16 {
         let frame = self.frame;
         let mut frame = (frame.command << 1) | (frame.telemetry as u16);
@@ -30,7 +30,7 @@ impl FrameBuilder {
             let mut ret = frame;
             ret ^= frame >> 4;
             ret ^= frame >> 8;
-            if (self.inverted) {
+            if self.inverted {
                 ret = !ret;
             }
             ret &= 0x0F;

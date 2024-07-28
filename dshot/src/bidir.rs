@@ -1,10 +1,10 @@
 use defmt::info;
 use embassy_rp::{gpio, pio};
-use embassy_time::{Instant, Timer};
+use embassy_time::Timer;
 
+use crate::{api, DshotTx};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
-use crate::{api, DshotTx};
 
 pub struct PioDshot<'a, P: pio::Instance, const SM: usize> {
     sm: pio::StateMachine<'a, P, SM>,
@@ -117,10 +117,12 @@ impl<'a, P: pio::Instance, const SM: usize> DshotTx for PioDshot<'a, P, SM> {
 
     async fn send_command(&mut self, command: api::Command) -> Self::Output {
         let command = command.try_into().unwrap();
-        let frame = api::FrameBuilder::new(
-            api::Frame { command, telemetry: true }
-        ).invert().build();
+        let frame = api::FrameBuilder::new(api::Frame {
+            command,
+            telemetry: true,
+        })
+        .invert()
+        .build();
         self.send_frame(frame).await
     }
 }
-
