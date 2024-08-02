@@ -37,7 +37,7 @@ async fn button_task(pin: gpio::AnyPin, mut esc_0: penguin_dshot::PioDshot<'stat
         state = !state;
         info!("sending throttle command");
         let command = if state {
-            penguin_dshot::api::Command::Throttle(120)
+            penguin_dshot::api::Command::Throttle(240)
         } else {
             penguin_dshot::api::Command::MotorStop
         };
@@ -49,6 +49,8 @@ async fn button_task(pin: gpio::AnyPin, mut esc_0: penguin_dshot::PioDshot<'stat
 #[embassy_executor::main]
 async fn main(spawner: Spawner) { 
     let p = embassy_rp::init(Default::default());
+
+    info!("init");
 
     // let servo_0 = penguin_exp::servo::ServoAB::new(
     //     p.PWM_SLICE1, p.PIN_18, p.PIN_19,
@@ -62,9 +64,9 @@ async fn main(spawner: Spawner) {
         sm1,
         ..
     } = pio::Pio::new(pio_0, Irqs);
-    let mut uart_0 = penguin_exp::uart::PioUartTx::new(&mut common, sm0, p.PIN_16, 9600);
-    let esc_0 = penguin_dshot::PioDshot::new(&mut common, sm1, p.PIN_22);
-    let pin_btn = p.PIN_1.degrade();
+    let mut uart_0 = penguin_exp::uart::PioUartTx::new(&mut common, sm0, p.PIN_0, 9600);
+    let esc_0 = penguin_dshot::PioDshot::new(&mut common, sm1, p.PIN_2);
+    let pin_btn = p.PIN_7.degrade();
     unwrap!(spawner.spawn(button_task(pin_btn, esc_0)));
 
     let mut led = penguin_exp::blinker::Blinker::new(p.PIN_25, Duration::from_millis(100));
