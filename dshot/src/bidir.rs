@@ -1,5 +1,5 @@
 use defmt::info;
-use embassy_rp::{gpio, pio};
+use embassy_rp::{dma, gpio, pio};
 use embassy_time::{Duration, Ticker, Timer};
 
 use crate::{api, DshotTx};
@@ -21,37 +21,57 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
         // 6:2 for high, 3:5 for low
         let prg = pio_proc::pio_asm!(
             r#"
-            .side_set 1 opt
-
             write_entry:
-                out null 16
+                pull noblock
+                mov x, osr
+                out null 16 ; 3 cycles total
             write_start:
-                nop side 0 [2] ; 3 cycles of low
-                out pins 1 [2] ; 3 cycles of out
-                nop side 1 ; 1 cycle of high
+                set pins 0 [14] ; 15 cycles of low
+                out pins 1 [14] ; 15 cycles of out
+                set pins 1 [8] ; 9 cycle of high
             write_end:
-                jmp !osre write_start ; 1 extra cycle of low
+                jmp !osre write_start ; 1 extra cycle of high
 
-            in null 32
+            switch_entry:
+                push noblock
+                set pindirs 0
+                set y 8 [29]; give time to switch lines, 10 * 32 = 320 cycles
+            switch_start:
+            switch_end:
+                jmp y-- switch_start [31]
 
-            ; frame sent, try receiving
-            set pindirs 0
+            ; stall for at most 360 cycles = 30 us, 40 cycles left
+            wait_entry:
+                set y 31 ; timing not strict
+            wait_start:
+                jmp !y cleanup
+                jmp y-- wait_end
+            wait_end:
+                jmp pin wait_start
 
-            read_entry:
-                set x 19 ; executed 20 times
-            read_guard:
-                wait 0 pin 0
-                in null 16 [7] ; first bit is always 0
+            read_entry: ; 32 cycles per bit
+                set y 19 ; executed 20 times
+                in null 16 [28] ; first bit is always 0
             read_start:
-                in pins 1 [1] ; get first bit
-                in pins 1 [1] ; get second bit
-                in pins 1 [1] ; get third bit
-                in pins 1 ; get last bit
+                nop [3] ; wait 4 cycles before starting
+                in pins 1 [7] ; get first bit
+                in pins 1 [7] ; get second bit
+                in pins 1 [7] ; get third bit
+                in pins 1 [1]; get last bit
+                push iffull noblock
             read_end:
-                jmp x-- read_start; 1 extra cycle of low
+                jmp y-- read_start
 
-            set pindirs 1 [7]; restore pin to out
-            nop side 1 [7]; push final bit and reset pin level
+            cleanup:
+                set pindirs 1 [31]; restore pin to out
+                set pins 1 [31]; push final bit and reset pin level
+
+            ; 640 cycles for a frame, 637 cycles required
+            idle_entry:
+                set y, 18 [28]; execute 19 times, 29 cycles
+            idle_start:
+            idle_end:
+                jmp y-- idle_start [31] ; 32 cycles x 19 = 608
             "#
         );
         let prg = common.load_program(&prg.program);
@@ -65,72 +85,62 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
         cfg.set_set_pins(&[&pin]);
         cfg.set_in_pins(&[&pin]);
         cfg.set_out_pins(&[&pin]);
-        cfg.use_program(&prg, &[&pin]);
+        cfg.set_jmp_pin(&pin);
+        cfg.use_program(&prg, &[]);
         cfg.shift_out = pio::ShiftConfig {
-            auto_fill: true,
             threshold: 32,
             direction: pio::ShiftDirection::Left,
             ..Default::default()
         };
         cfg.shift_in = pio::ShiftConfig {
-            auto_fill: true,
             threshold: 32,
             direction: pio::ShiftDirection::Left,
             ..Default::default()
         };
-        let dshot_rate = 300u64 * 1000 * 8;
+        let dshot_rate = 300u64 * 1000 * 8 * 5; // 40 cycles for dshot frame bit, 32 cycles for EDT frames bit
         cfg.clock_divider = (U56F8!(125_000_000) / dshot_rate).to_fixed();
 
         let origin = prg.origin;
 
         sm.set_config(&cfg);
-        sm.set_enable(true);
-
-        Self { sm, pin, origin }
+        let mut ret = Self { sm, pin, origin };
+        ret.send_command(crate::api::Command::ExtendedTelemetry { enabled: true });
+        ret
     }
 }
 
 impl<'a, P: pio::Instance, const SM: usize> DshotTx for PioDshot<'a, P, SM> {
-    type Output = Option<[u32; 3]>;
+    type Output = Option<[u32; 4]>;
 
-    async fn arm(&mut self) {
-        let mut ticker = Ticker::every(Duration::from_millis(1));
-        for _i in 0..20000 {
-            self.send_command(api::Command::MotorStop).await;
-            ticker.next().await;
-        }
+    fn entry(&mut self) {
+        self.sm.set_enable(true);
     }
 
-    async fn send_frame(&mut self, frame: u16) -> Self::Output {
-        self.sm.tx().wait_push(!frame as u32).await;
-        let status_tx = self.sm.rx().wait_pull().await;
-        assert_eq!(status_tx, 0);
-
-        Timer::after_micros(45).await; // 30 us + 4 bits = around 45 us
-        if self.sm.rx().empty() {
-            self.sm.restart();
-            unsafe { pio::instr::exec_jmp(&mut self.sm, self.origin) }
-            self.sm.set_pin_dirs(pio::Direction::Out, &[&self.pin]);
-            return None; // state machine stuck
-        }
-
-        let ret = [
-            self.sm.rx().wait_pull().await,
-            self.sm.rx().wait_pull().await,
-            self.sm.rx().wait_pull().await,
-        ];
-        info!("ret: {:#034b},{:#034b},{:#034b}", ret[0], ret[1], ret[2]);
-        Some(ret)
+    fn send_frame(&mut self, frame: u16) {
+        self.sm.tx().push(!frame as u32);
     }
 
-    async fn send_command(&mut self, command: api::Command) -> Self::Output {
+    fn send_command(&mut self, command: api::Command) {
         let command = command.try_into().unwrap();
         let frame = api::FrameBuilder::new(api::Frame {
             command,
-            telemetry: false,
+            telemetry: true,
         })
         .invert()
         .build();
-        self.send_frame(frame).await
+        self.send_frame(frame)
+    }
+
+    fn drain(&mut self) -> Self::Output {
+        if !self.sm.rx().full() {
+            return None;
+        }
+        let frame = [
+            self.sm.rx().try_pull()?,
+            self.sm.rx().try_pull()?,
+            self.sm.rx().try_pull()?,
+            self.sm.rx().try_pull()?,
+        ];
+        Some(frame)
     }
 }

@@ -5,6 +5,7 @@ pub enum CommandError {
 
 pub enum Command {
     MotorStop,
+    ExtendedTelemetry { enabled: bool },
     Beep { count: u8 },
     EscInfo,
     Reverse(bool),
@@ -18,6 +19,7 @@ impl TryFrom<Command> for u16 {
     fn try_from(op_0: Command) -> Result<Self, Self::Error> {
         let ret = match op_0 {
             Command::MotorStop => { Self::MIN }
+            Command::ExtendedTelemetry { enabled } => { if enabled { 13 } else { 14 } },
             Command::Beep { count } => {
                 if count < 1 || count > 5 {
                     return Err(Self::Error::Invalid);

@@ -29,6 +29,7 @@ async fn button_task(pin: gpio::AnyPin, mut esc_0: penguin_dshot::PioDshot<'stat
     let input = gpio::Input::new(pin, gpio::Pull::Up);
     let mut button = penguin_exp::button::Button::new(input, Duration::from_millis(40));
     let mut state = false;
+    esc_0.entry();
     loop {
         let level = button.debounce().await;
         if level != gpio::Level::High {
@@ -41,8 +42,7 @@ async fn button_task(pin: gpio::AnyPin, mut esc_0: penguin_dshot::PioDshot<'stat
         } else {
             penguin_dshot::api::Command::MotorStop
         };
-        esc_0.send_command(command)
-            .await;
+        esc_0.send_command(command);
     }
 }
 

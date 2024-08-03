@@ -13,13 +13,11 @@ use fixed_macro::types::U56F8;
 pub trait DshotTx {
     type Output;
 
-    async fn send_frame(&mut self, frame: u16) -> Self::Output;
-    async fn send_command(&mut self, command: api::Command) -> Self::Output;
+    fn entry(&mut self);
+    fn send_frame(&mut self, frame: u16);
+    fn send_command(&mut self, command: api::Command);
     
-    async fn arm(&mut self) {
-        self.send_command(api::Command::MotorStop).await;
-        Timer::after_millis(500).await;
-    }
+    fn drain(&mut self) -> Self::Output;
 }
 
 pub struct PioDshot<'a, P: pio::Instance, const SM: usize> {
@@ -35,26 +33,23 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
         // 6:2 for high, 3:5 for low
         let prg = pio_proc::pio_asm!(
             r#"
-            .side_set 1 opt
-
             loop_entry:
                 pull noblock
                 mov x, osr
                 out null 16 ; 3 cycles total
             loop_start:
-                nop side 1 [2] ; 3 cycles of high
-                out pins 1 [2]; 3 cycles of out
-                nop side 0 ; 1 cycle of low
+                set pins 1 [14] ; 15 cycles of high
+                out pins 1 [14] ; 15 cycles of out
+                set pins 0 [8] ; 9 cycle of low
             loop_end:
                 jmp !osre loop_start ; 1 extra cycle of low
 
-            ; 256 cycles for a frame, 252 cycles required
+            ; 640 cycles for a frame, 637 cycles required
             idle_entry:
-                set y, 30 ; execute 31 times
+                set y, 18 [28]; execute 19 times, 29 cycles
             idle_start:
             idle_end:
-                jmp y-- idle_start [7] ; 8 cycles x 31 = 248
-                nop [3]
+                jmp y-- idle_start [31] ; 32 cycles x 19 = 608
             "#
         );
         let mut pin = common.make_pio_pin(pin);
@@ -65,34 +60,38 @@ impl<'a, P: pio::Instance, const SM: usize> PioDshot<'a, P, SM> {
         let mut cfg = pio::Config::default();
         cfg.set_set_pins(&[&pin]);
         cfg.set_out_pins(&[&pin]);
-        cfg.use_program(&common.load_program(&prg.program), &[&pin]);
+        cfg.use_program(&common.load_program(&prg.program), &[]);
         cfg.shift_out = pio::ShiftConfig {
             threshold: 32,
             direction: pio::ShiftDirection::Left,
             ..Default::default()
         };
-        let dshot_rate = 300u64 * 1000 * 8;
+        let dshot_rate = 300u64 * 1000 * 8 * 5; // 40 cycles per bit
         cfg.clock_divider = (U56F8!(125_000_000) / dshot_rate).to_fixed();
         sm.set_config(&cfg);
         sm.tx().push(u32::MIN);
-        sm.set_enable(true);
-
         Self { sm }
     }
 }
 
 impl<'a, P: pio::Instance, const SM: usize> DshotTx for PioDshot<'a, P, SM> {
     type Output = ();
-    
-    async fn send_frame(&mut self, frame: u16) {
-        self.sm.tx().wait_push(frame as u32).await;
+
+    fn entry(&mut self) {
+        self.sm.set_enable(true);
     }
 
-    async fn send_command(&mut self, command: api::Command) {
+    fn send_frame(&mut self, frame: u16) {
+        self.sm.tx().push(frame as u32);
+    }
+
+    fn send_command(&mut self, command: api::Command) {
         let command = command.try_into().unwrap();
         let frame = api::FrameBuilder::new(
             api::Frame { command, telemetry: false }
         ).build();
-        self.send_frame(frame).await;
+        self.send_frame(frame);
     }
+    
+    fn drain(&mut self) {}
 }
