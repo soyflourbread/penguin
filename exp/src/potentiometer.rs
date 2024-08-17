@@ -18,7 +18,7 @@ impl<'a> Potentiometer<'a> {
 
         let mut ret = raw_vol as f32;
         ret *= 3.23;
-        ret *= 3.0;
+        ret *= 4.0;
         ret /= 4096.0;
         Ok(ret)
     }

@@ -5,6 +5,7 @@ use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+use defmt::*;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -13,8 +14,9 @@ async fn main(_spawner: Spawner) {
 
     loop {
         led.set_high();
-        Timer::after_millis(300).await;
+        Timer::after_millis(1000).await;
         led.set_low();
-        Timer::after_millis(300).await;
+        Timer::after_millis(1000).await;
+        info!("thr");
     }
 }

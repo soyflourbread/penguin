@@ -4,7 +4,7 @@
 use penguin_dshot::DshotTx;
 
 use core::fmt::Write;
-use core::sync::atomic::AtomicBool;
+use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use heapless::String;
 
 use embassy_executor::Spawner;
@@ -22,28 +22,31 @@ bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => pio::InterruptHandler<peripherals::PIO0>;
 });
 
+static THROTTLE: AtomicU16 = AtomicU16::new(0);
+
 static PIO_0: StaticCell<peripherals::PIO0> = StaticCell::new();
 
 #[embassy_executor::task]
 async fn button_task(pin: gpio::AnyPin, mut esc_0: penguin_dshot::PioDshot<'static, peripherals::PIO0, 1>) {
     let input = gpio::Input::new(pin, gpio::Pull::Up);
     let mut button = penguin_exp::button::Button::new(input, Duration::from_millis(40));
-    let mut state = false;
     esc_0.entry();
+    while button.debounce().await != gpio::Level::High {}
+    let mut ticker = Ticker::every(Duration::from_millis(80));
+    let mut throttle: f32 = THROTTLE.load(Ordering::Relaxed) as f32;
     loop {
-        let level = button.debounce().await;
-        if level != gpio::Level::High {
-            continue;
-        }
-        state = !state;
-        info!("sending throttle command");
-        let command = if state {
-            penguin_dshot::api::Command::Throttle(240)
-        } else {
-            penguin_dshot::api::Command::MotorStop
-        };
-        esc_0.send_command(command);
+        ticker.next().await;
+        throttle *= 0.9;
+        throttle += THROTTLE.load(Ordering::Relaxed) as f32 * 0.1;
+        esc_0.send_command(penguin_dshot::api::Command::Throttle(throttle as u16));
     }
+}
+
+fn to_throttle(voltage: f32) -> u16 {
+    let mut ret: f32 = 12.0; // max 12 volts
+    ret /= voltage;
+    ret *= 240.0; // base throttle
+    ret as u16
 }
 
 #[embassy_executor::main]
@@ -68,26 +71,20 @@ async fn main(spawner: Spawner) {
     let esc_0 = penguin_dshot::PioDshot::new(&mut common, sm1, p.PIN_2);
     let pin_btn = p.PIN_7.degrade();
     unwrap!(spawner.spawn(button_task(pin_btn, esc_0)));
-
-    let mut led = penguin_exp::blinker::Blinker::new(p.PIN_25, Duration::from_millis(100));
-
+    
     let mut adc = adc::Adc::new(p.ADC, Irqs, adc::Config::default());
     let mut potentiometer = penguin_exp::potentiometer::Potentiometer::new(p.PIN_29);
-    let mut thermometer = penguin_exp::thermometer::Thermometer::new(p.ADC_TEMP_SENSOR);
-
-    let mut ticker = Ticker::every(Duration::from_millis(800));
+    let mut ticker = Ticker::every(Duration::from_millis(40));
     let mut frame: String<128> = String::new();
     loop {
         ticker.next().await;
-        led.blink().await;
-
         let vol = potentiometer.voltage(&mut adc).await.unwrap();
-        let temp = thermometer.temperature(&mut adc).await.unwrap();
-        frame.clear();
-        let _ = write!(frame, "vol: {}, temp: {} \r\n", vol, temp);
-        {
-            use embedded_io_async::Write;
-            uart_0.write(frame.as_bytes()).await.unwrap();
-        }
+        THROTTLE.store(to_throttle(vol), Ordering::Relaxed);
+        // frame.clear();
+        // let _ = write!(frame, "vol: {}, temp: {} \r\n", vol, temp);
+        // {
+        //     use embedded_io_async::Write;
+        //     uart_0.write(frame.as_bytes()).await.unwrap();
+        // }
     }
 }
